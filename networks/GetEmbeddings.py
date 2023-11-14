@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 
 
 def getEmbeddings(embeddings_path, pad_token, unk_token):
@@ -11,7 +12,7 @@ def getEmbeddings(embeddings_path, pad_token, unk_token):
         full_content = full_content.strip() # remove leading and trailing whitespace
         full_content = full_content.split('\n') # split the text into a list of lines
 
-    for i in range(len(full_content)):
+    for i in tqdm(range(len(full_content))):
         i_word = full_content[i].split(' ')[0] # get the word at the start of the line
         i_embeddings = [float(val) for val in full_content[i].split(' ')[1:]]  # get the embedding of the word in an array
         # add the word and the embedding to our lists
