@@ -1,12 +1,14 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from tqdm import tqdm
+# from tqdm import tqdm
+# from tqdm.notebook import tqdm
+from tqdm.autonotebook import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import sys
 
 
-def starting_train(train_dataset, val_dataset, model, hyperparameters, n_eval):
+def starting_train(train_dataset, val_dataset, model, hyperparameters, n_eval, device, using_notebook=False):
     """
     Trains and evaluates a model.
 
@@ -17,8 +19,12 @@ def starting_train(train_dataset, val_dataset, model, hyperparameters, n_eval):
         hyperparameters: Dictionary containing hyperparameters.
         n_eval:          Interval at which we evaluate our model.
     """
+    # if using_notebook:
+    #     from tqdm.notebook import tqdm
+    # else:
+    #     from tqdm import tqdm
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.train()
 
     # Get keyword arguments
     batch_size, epochs = hyperparameters["batch_size"], hyperparameters["epochs"]
@@ -36,23 +42,20 @@ def starting_train(train_dataset, val_dataset, model, hyperparameters, n_eval):
     # loss_fn = nn.CrossEntropyLoss()  # more for multi-class classification
     loss_fn = nn.BCELoss()
 
-    writer = SummaryWriter()  # tensorboard log
+    writer = SummaryWriter(filename_suffix=model.__class__.__name__)  # tensorboard log
 
     step = 0
     for epoch in range(epochs):
         print(f"Epoch {epoch + 1} of {epochs}")
 
         # Loop over each batch in the dataset
-        for batch in tqdm(train_loader):  # show the times for each batch
+        progress_bar = tqdm(train_loader)
+        for batch in progress_bar:  # show the times for each batch
             # Forward propagate
-            # print('batch', batch[0][0], ' ', batch[1][0], ' ', batch[2][0])
-            # batch[0] is id representation of sentence
-            # batch[1] = max_seq_length 134
-            # batch[2] = 1.
-            samples, labels = batch[0], batch[2]
+            samples, labels = batch['input_ids'].to(device), batch['labels'].to(device)
 
-            samples.to(device)
-            labels.to(device)
+            # print("samples device ", samples.get_device())
+            # print("labels device", labels.get_device())
             outputs = model(samples)
 
             labels = labels.reshape(-1,1).float()
@@ -64,24 +67,27 @@ def starting_train(train_dataset, val_dataset, model, hyperparameters, n_eval):
 
 
             # Periodically evaluate our model + log to Tensorboard
-            # if step % n_eval == 0:
-            #     # TODO:
-            #     # Compute training loss and accuracy.
-            #     # Log the results to Tensorboard.
-            #     with torch.no_grad():
-            #         accuracy = compute_accuracy(outputs, labels)
+            if step % n_eval == 0:
+                print(f"Train Epoch {epoch} Loss {loss.item()}")
+                progress_bar.set_description(f"Epoch {epoch} with Training Loss {loss.item()}")
+                # Compute training loss and accuracy.
+                # Log the results to Tensorboard.
+                accuracy = compute_accuracy(outputs, labels)
 
-            #         writer.add_scalar('Training Loss', loss, epoch)
-            #         writer.add_scalar('Training Accuracy', accuracy, epoch)
+                writer.add_scalar('Training Loss', loss, epoch)
+                writer.add_scalar('Training Accuracy', accuracy, epoch)
 
+                with torch.no_grad():
+                    model.eval()
+                    # Compute validation loss and accuracy.
+                    # Log the results to Tensorboard.
+                    val_loss, val_accuracy = evaluate(val_loader, model, loss_fn, device)
+                    writer.add_scalar('Validation Loss', val_loss, epoch)
+                    writer.add_scalar('Validation Accuracy', val_accuracy, epoch)
 
-            #         # TODO:
-            #         # Compute validation loss and accuracy.
-            #         # Log the results to Tensorboard.
-            #         # Don't forget to turn off gradient calculations!
-            #         val_loss, val_accuracy = evaluate(val_loader, model, loss_fn)
-            #         writer.add_scalar('Validation Loss', val_loss, epoch)
-            #         writer.add_scalar('Validation Accuracy', val_accuracy, epoch)
+                    # print(f"Validation Loss {val_loss}")
+                    # print(f"Validation Accuracy {val_accuracy}")
+                    model.train()
 
             step += 1
 
@@ -97,7 +103,6 @@ def compute_accuracy(outputs, labels):
     Example input:
         outputs: [0.7, 0.9, 0.3, 0.2]
         labels:  [1, 1, 0, 1]
-
     Example output:
         0.75
     """
@@ -107,14 +112,13 @@ def compute_accuracy(outputs, labels):
     return n_correct / n_total
 
 
-def evaluate(val_loader, model, loss_fn):
+def evaluate(val_loader, model, loss_fn, device):
     """
     Computes the loss and accuracy of a model on the validation dataset.
-
-    TODO!
     """
     for batch in tqdm(val_loader):
-        val_samples, val_labels = batch
+        val_samples, val_labels = batch['input_ids'].to(device), batch['labels'].to(device)
+
         outputs = model(val_samples)
         val_labels = val_labels.reshape(-1, 1).float()
         val_loss = loss_fn(outputs, val_labels)
